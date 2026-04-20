@@ -10,11 +10,10 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
     public float maxZoom = 5f;
 
     [Header("Swipe Settings")]
-    public float swipeThreshold = 400f; // Distance required to dismiss
+    public float swipeThreshold = 400f;
 
     private Vector2 initialTouchPos;
 
-    // Reset scale and position when opened
     private void OnEnable()
     {
         if (photoDisplay != null)
@@ -26,7 +25,7 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
 
     private void Update()
     {
-        // PINCH TO ZOOM LOGIC
+        // pinch to zoom
         if (Input.touchCount == 2)
         {
             Touch touchZero = Input.GetTouch(0);
@@ -56,7 +55,7 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
         photoDisplay.localScale = targetScale;
     }
 
-    // SWIPE TO DISMISS LOGIC
+    // swipe to dismiss
     public void OnBeginDrag(PointerEventData eventData)
     {
         initialTouchPos = eventData.position;
@@ -64,7 +63,7 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
 
     public void OnDrag(PointerEventData eventData)
     {
-        // Intentionally empty
+
     }
 
     public void OnEndDrag(PointerEventData eventData)
@@ -72,7 +71,6 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
         float distanceY = eventData.position.y - initialTouchPos.y;
         float distanceX = eventData.position.x - initialTouchPos.x;
 
-        // Hide full screen view if swiped hard enough
         if (Mathf.Abs(distanceY) > swipeThreshold || Mathf.Abs(distanceX) > swipeThreshold)
         {
             Screen.orientation = ScreenOrientation.Portrait;

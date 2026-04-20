@@ -7,7 +7,7 @@ using UnityEngine.EventSystems;
 
 public class ARSceneManager : MonoBehaviour
 {
-    [Header("AR Experience Objects")]
+    [Header("AR Objects")]
     public GameObject[] glasses;
     private int currentIndex = 0;
     private Vector3[] initialScales;
@@ -43,18 +43,20 @@ public class ARSceneManager : MonoBehaviour
 
     private void Start()
     {
+        // cache the original scales of the 3D models so we can reset them later if needed
         initialScales = new Vector3[glasses.Length];
         for (int i = 0; i < glasses.Length; i++)
         {
             if (glasses[i] != null) initialScales[i] = glasses[i].transform.localScale;
         }
 
+        // make sure the HUD starts in the closed position
         if (rightSideHUD != null)
             rightSideHUD.anchoredPosition = new Vector2(closedX, rightSideHUD.anchoredPosition.y);
 
         SetupListeners();
         UpdateVisibility();
-        LoadGallery();
+        LoadGallery(); // fetch saved photos from device storage on startup
     }
 
     private void SetupListeners()
@@ -72,30 +74,35 @@ public class ARSceneManager : MonoBehaviour
 
     private void Update()
     {
-        // Don't close panels if full screen photo is open
+        // checking for screen taps
+        // skip this if the full-screen photo viewer is currently active
         if (Input.GetMouseButtonDown(0) && (fullScreenView == null || !fullScreenView.activeSelf))
         {
-            if (EventSystem.current.IsPointerOverGameObject()) return;
+            if (EventSystem.current.IsPointerOverGameObject()) return; // ignored if tapping on a UI element
             HandleOutsideClick();
         }
     }
 
-    // --- PANEL TOGGLES ---
+    // panel toggles
     public void ToggleRightHUD()
     {
         isHudOpen = !isHudOpen;
+
+        // stop any ongoing slide animation before starting a new one to avoid glitchy movement
         if (slideCoroutine != null) StopCoroutine(slideCoroutine);
         slideCoroutine = StartCoroutine(AnimateHUD(isHudOpen ? openX : closedX));
     }
 
     private IEnumerator AnimateHUD(float targetX)
     {
+        // slide the panel towards the target X position
         while (Mathf.Abs(rightSideHUD.anchoredPosition.x - targetX) > 0.1f)
         {
             float nextX = Mathf.Lerp(rightSideHUD.anchoredPosition.x, targetX, Time.deltaTime * slideSpeed);
             rightSideHUD.anchoredPosition = new Vector2(nextX, rightSideHUD.anchoredPosition.y);
             yield return null;
         }
+        // snap the position at the end of the animation
         rightSideHUD.anchoredPosition = new Vector2(targetX, rightSideHUD.anchoredPosition.y);
     }
 
@@ -105,17 +112,19 @@ public class ARSceneManager : MonoBehaviour
 
     public void CloseAll()
     {
+        // hide all floating panels
         if (settingsPanel != null) settingsPanel.SetActive(false);
         if (glassesPanel != null) glassesPanel.SetActive(false);
         if (galleryPanel != null) galleryPanel.SetActive(false);
     }
 
-    // --- MODEL SELECTION & TRANSFORMATION ---
+    // transformation and model selection
     public void SelectGlass(int index)
     {
         if (index < 0 || index >= glasses.Length) return;
         currentIndex = index;
 
+        // reset the selected model's position and scale 
         GameObject obj = glasses[currentIndex];
         if (obj != null)
         {
@@ -127,6 +136,7 @@ public class ARSceneManager : MonoBehaviour
 
     private void UpdateVisibility()
     {
+        // only show the currently selected pair of glasses
         for (int i = 0; i < glasses.Length; i++)
             if (glasses[i] != null) glasses[i].SetActive(i == currentIndex);
 
@@ -135,6 +145,7 @@ public class ARSceneManager : MonoBehaviour
 
     private void ApplyTransforms()
     {
+        // bail out if the UI is currently being updated by the script itself
         if (isSyncingUI || glasses[currentIndex] == null) return;
 
         glasses[currentIndex].transform.localScale = initialScales[currentIndex] * scaleSlider.value;
@@ -146,6 +157,7 @@ public class ARSceneManager : MonoBehaviour
         if (glasses[currentIndex] == null) return;
         isSyncingUI = true;
 
+        // calculate the relative scale ratio and update the sliders to match the model's current state
         float ratio = glasses[currentIndex].transform.localScale.x / initialScales[currentIndex].x;
         scaleSlider.value = ratio;
         xSlider.value = glasses[currentIndex].transform.localPosition.x;
@@ -162,7 +174,9 @@ public class ARSceneManager : MonoBehaviour
 
     private IEnumerator CaptureScreen()
     {
+        // hide the UI so it doesn't ruin the screenshot
         if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(false);
+
         yield return new WaitForEndOfFrame();
 
         int width = Screen.width;
@@ -177,9 +191,11 @@ public class ARSceneManager : MonoBehaviour
         screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
         screenShot.Apply();
 
+        // cleanup texture memory
         Camera.main.targetTexture = null;
         RenderTexture.active = null;
 
+        // encode and save the image locally
         byte[] bytes = screenShot.EncodeToPNG();
         string filename = "AR_Snap_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
         string path = Path.Combine(Application.persistentDataPath, filename);
@@ -187,30 +203,34 @@ public class ARSceneManager : MonoBehaviour
 
         Destroy(rt);
 
-        CreateThumbnail(path);
+        CreateThumbnail(path); // update the gallery with the new photo
         Destroy(screenShot);
 
+        // bring the UI back and trigger the camera flash effect
         if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(true);
         if (flashScreen != null) StartCoroutine(DoFlash());
     }
 
     private IEnumerator DoFlash()
     {
+        // creates white flash effect
         flashScreen.color = Color.white;
         yield return new WaitForSeconds(0.05f);
         float a = 1f;
         while (a > 0)
         {
-            a -= Time.deltaTime * 4f;
+            a -= Time.deltaTime * 4f; // fade out
             flashScreen.color = new Color(1, 1, 1, a);
             yield return null;
         }
     }
 
-    // --- DYNAMIC GALLERY SYSTEM ---
+    // gallery system
     private void LoadGallery()
     {
         if (!Directory.Exists(Application.persistentDataPath)) return;
+
+        // grab all saved AR snapshots and generate thumbnails for them
         string[] files = Directory.GetFiles(Application.persistentDataPath, "AR_Snap_*.png");
         foreach (string file in files)
         {
@@ -222,10 +242,12 @@ public class ARSceneManager : MonoBehaviour
     {
         if (thumbnailPrefab == null || galleryContent == null) return;
 
+        // load the image bytes and convert them into a readable Texture2D
         byte[] bytes = File.ReadAllBytes(filePath);
         Texture2D tex = new Texture2D(2, 2);
         tex.LoadImage(bytes);
 
+        // spawn a new thumbnail in the gallery grid
         GameObject thumbObj = Instantiate(thumbnailPrefab, galleryContent);
         RawImage thumbImg = thumbObj.GetComponent<RawImage>();
         if (thumbImg != null) thumbImg.texture = tex;
@@ -244,6 +266,7 @@ public class ARSceneManager : MonoBehaviour
         photoDisplay.texture = photoTex;
         fullScreenView.SetActive(true);
 
+        // allow the user to rotate their phone to view the photo in landscape mode
         Screen.orientation = ScreenOrientation.AutoRotation;
         Screen.autorotateToPortrait = true;
         Screen.autorotateToLandscapeLeft = true;
@@ -252,6 +275,7 @@ public class ARSceneManager : MonoBehaviour
 
     private void HandleOutsideClick()
     {
+        // loop through all managed panels.
         foreach (RectTransform p in panelRects)
             if (p != null && p.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(p, Input.mousePosition)) return;
 
