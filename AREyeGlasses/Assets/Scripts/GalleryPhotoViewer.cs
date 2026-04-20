@@ -10,7 +10,7 @@ public class GalleryPhotoViewer : MonoBehaviour, IDragHandler, IBeginDragHandler
     public float maxZoom = 5f;
 
     [Header("Swipe Settings")]
-    public float swipeThreshold = 150f; // Distance required to dismiss
+    public float swipeThreshold = 400f; // Distance required to dismiss
 
     private Vector2 initialTouchPos;
 
