@@ -39,6 +39,9 @@ public class ARSceneManager : MonoBehaviour
     public GameObject fullScreenView;
     public RawImage photoDisplay;
 
+    [Header("Precise Adjusters")]
+    public float stepAmount = 0.01f;
+
     private bool isSyncingUI = false;
 
     private void Start()
@@ -280,5 +283,25 @@ public class ARSceneManager : MonoBehaviour
             if (p != null && p.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(p, Input.mousePosition)) return;
 
         CloseAll();
+    }
+
+    public void ChangeScaleValue(bool isIncrease)
+    {
+        scaleSlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeXValue(bool isIncrease)
+    {
+        xSlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeYValue(bool isIncrease)
+    {
+        ySlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeZValue(bool isIncrease)
+    {
+        zSlider.value += isIncrease ? stepAmount : -stepAmount;
     }
 }
