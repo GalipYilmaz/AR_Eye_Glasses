@@ -1,7 +1,6 @@
 AREyeGlasses/Packages/com.ptc.vuforia.engine-11.4.4.tgz
 **/VuforiaConfiguration.asset
 **/VuforiaConfiguration.asset.meta
-# --- Visual Studio / Kod Editörü Çöpleri ---
 *.sln
 *.slnx
 *.csproj
@@ -9,10 +8,8 @@ AREyeGlasses/Packages/com.ptc.vuforia.engine-11.4.4.tgz
 .vs/
 .vsconfig
 
-# --- İşletim Sistemi Çöpleri (Windows/Mac) ---
 .DS_Store
 Thumbs.db
 
-# --- Android Güvenlik Dosyaları (ÇOK KRİTİK) ---
 *.keystore
 *.userkeystore
