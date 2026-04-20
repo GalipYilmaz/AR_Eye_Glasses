@@ -16,14 +16,14 @@ public class ARSceneManager : MonoBehaviour
     public GameObject settingsPanel;
     public GameObject glassesPanel;
     public GameObject galleryPanel;
-    public UnityEngine.UI.Image flashScreen;
+    public Image flashScreen;
     public RectTransform[] panelRects;
 
     [Header("Slide HUD System")]
     public RectTransform rightSideHUD;
     public float slideSpeed = 15f;
     private bool isHudOpen = false;
-    private float closedX = 420f; // Adjust based on panel width
+    private float closedX = 540f;
     private float openX = 0f;
     private Coroutine slideCoroutine;
 
@@ -32,6 +32,12 @@ public class ARSceneManager : MonoBehaviour
     public TMP_InputField scaleInput;
     public Slider xSlider, ySlider, zSlider;
     public TMP_InputField xInput, yInput, zInput;
+
+    [Header("Dynamic Gallery System")]
+    public GameObject thumbnailPrefab;
+    public Transform galleryContent;
+    public GameObject fullScreenView;
+    public RawImage photoDisplay;
 
     private bool isSyncingUI = false;
 
@@ -43,12 +49,12 @@ public class ARSceneManager : MonoBehaviour
             if (glasses[i] != null) initialScales[i] = glasses[i].transform.localScale;
         }
 
-        // Initialize HUD in closed position
         if (rightSideHUD != null)
             rightSideHUD.anchoredPosition = new Vector2(closedX, rightSideHUD.anchoredPosition.y);
 
         SetupListeners();
         UpdateVisibility();
+        LoadGallery();
     }
 
     private void SetupListeners()
@@ -66,13 +72,15 @@ public class ARSceneManager : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetMouseButtonDown(0))
+        // Don't close panels if full screen photo is open
+        if (Input.GetMouseButtonDown(0) && (fullScreenView == null || !fullScreenView.activeSelf))
         {
             if (EventSystem.current.IsPointerOverGameObject()) return;
             HandleOutsideClick();
         }
     }
 
+    // --- PANEL TOGGLES ---
     public void ToggleRightHUD()
     {
         isHudOpen = !isHudOpen;
@@ -97,11 +105,12 @@ public class ARSceneManager : MonoBehaviour
 
     public void CloseAll()
     {
-        settingsPanel.SetActive(false);
-        glassesPanel.SetActive(false);
-        galleryPanel.SetActive(false);
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        if (glassesPanel != null) glassesPanel.SetActive(false);
+        if (galleryPanel != null) galleryPanel.SetActive(false);
     }
 
+    // --- MODEL SELECTION & TRANSFORMATION ---
     public void SelectGlass(int index)
     {
         if (index < 0 || index >= glasses.Length) return;
@@ -146,33 +155,39 @@ public class ARSceneManager : MonoBehaviour
         isSyncingUI = false;
     }
 
-    public void TakeSnapshot() { StartCoroutine(CaptureScreen()); }
+    public void TakeSnapshot()
+    {
+        StartCoroutine(CaptureScreen());
+    }
 
     private IEnumerator CaptureScreen()
     {
-        // Hide HUD before rendering
         if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(false);
-
         yield return new WaitForEndOfFrame();
 
-        RenderTexture rt = new RenderTexture(Screen.width, Screen.height, 24);
+        int width = Screen.width;
+        int height = Screen.height;
+        RenderTexture rt = new RenderTexture(width, height, 24);
+
         Camera.main.targetTexture = rt;
         Camera.main.Render();
         RenderTexture.active = rt;
 
-        Texture2D screenShot = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
-        screenShot.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+        Texture2D screenShot = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+        screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
         screenShot.Apply();
 
         Camera.main.targetTexture = null;
         RenderTexture.active = null;
 
         byte[] bytes = screenShot.EncodeToPNG();
-        string filename = "Snap_" + System.DateTime.Now.ToString("HHmmss") + ".png";
+        string filename = "AR_Snap_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
         string path = Path.Combine(Application.persistentDataPath, filename);
         File.WriteAllBytes(path, bytes);
 
         Destroy(rt);
+
+        CreateThumbnail(path);
         Destroy(screenShot);
 
         if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(true);
@@ -192,10 +207,53 @@ public class ARSceneManager : MonoBehaviour
         }
     }
 
+    // --- DYNAMIC GALLERY SYSTEM ---
+    private void LoadGallery()
+    {
+        if (!Directory.Exists(Application.persistentDataPath)) return;
+        string[] files = Directory.GetFiles(Application.persistentDataPath, "AR_Snap_*.png");
+        foreach (string file in files)
+        {
+            CreateThumbnail(file);
+        }
+    }
+
+    private void CreateThumbnail(string filePath)
+    {
+        if (thumbnailPrefab == null || galleryContent == null) return;
+
+        byte[] bytes = File.ReadAllBytes(filePath);
+        Texture2D tex = new Texture2D(2, 2);
+        tex.LoadImage(bytes);
+
+        GameObject thumbObj = Instantiate(thumbnailPrefab, galleryContent);
+        RawImage thumbImg = thumbObj.GetComponent<RawImage>();
+        if (thumbImg != null) thumbImg.texture = tex;
+
+        Button btn = thumbObj.GetComponent<Button>();
+        if (btn != null)
+        {
+            btn.onClick.AddListener(() => OpenFullScreen(tex));
+        }
+    }
+
+    private void OpenFullScreen(Texture2D photoTex)
+    {
+        if (fullScreenView == null || photoDisplay == null) return;
+
+        photoDisplay.texture = photoTex;
+        fullScreenView.SetActive(true);
+
+        Screen.orientation = ScreenOrientation.AutoRotation;
+        Screen.autorotateToPortrait = true;
+        Screen.autorotateToLandscapeLeft = true;
+        Screen.autorotateToLandscapeRight = true;
+    }
+
     private void HandleOutsideClick()
     {
         foreach (RectTransform p in panelRects)
-            if (p.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(p, Input.mousePosition)) return;
+            if (p != null && p.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(p, Input.mousePosition)) return;
 
         CloseAll();
     }
