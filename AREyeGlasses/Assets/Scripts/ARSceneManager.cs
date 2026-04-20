@@ -3,196 +3,305 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.IO;
+using UnityEngine.EventSystems;
 
 public class ARSceneManager : MonoBehaviour
 {
     [Header("AR Objects")]
     public GameObject[] glasses;
     private int currentIndex = 0;
+    private Vector3[] initialScales;
 
-    [Header("UI Panels")]
+    [Header("UI Panels & Navigation")]
     public GameObject settingsPanel;
     public GameObject glassesPanel;
     public GameObject galleryPanel;
     public Image flashScreen;
+    public RectTransform[] panelRects;
 
-    [Header("Transform Controls")]
+    [Header("Slide HUD System")]
+    public RectTransform rightSideHUD;
+    public float slideSpeed = 15f;
+    private bool isHudOpen = false;
+    private float closedX = 540f;
+    private float openX = 0f;
+    private Coroutine slideCoroutine;
+
+    [Header("Transformation UI Components")]
     public Slider scaleSlider;
     public TMP_InputField scaleInput;
+    public Slider xSlider, ySlider, zSlider;
+    public TMP_InputField xInput, yInput, zInput;
 
-    public Slider xSlider;
-    public TMP_InputField xInput;
+    [Header("Dynamic Gallery System")]
+    public GameObject thumbnailPrefab;
+    public Transform galleryContent;
+    public GameObject fullScreenView;
+    public RawImage photoDisplay;
 
-    public Slider ySlider;
-    public TMP_InputField yInput;
+    [Header("Precise Adjusters")]
+    public float stepAmount = 0.01f;
 
-    public Slider zSlider;
-    public TMP_InputField zInput;
+    private bool isSyncingUI = false;
 
     private void Start()
     {
-        // Initialize UI listeners to sync sliders and input fields
-        scaleSlider.onValueChanged.AddListener(OnScaleSliderChanged);
-        xSlider.onValueChanged.AddListener(OnXSliderChanged);
-        ySlider.onValueChanged.AddListener(OnYSliderChanged);
-        zSlider.onValueChanged.AddListener(OnZSliderChanged);
-
-        scaleInput.onEndEdit.AddListener(OnScaleInputChanged);
-        xInput.onEndEdit.AddListener(OnXInputChanged);
-        yInput.onEndEdit.AddListener(OnYInputChanged);
-        zInput.onEndEdit.AddListener(OnZInputChanged);
-
-        UpdateGlassesVisibility();
-    }
-
-    // --- Panel Navigation Logic ---
-
-    public void ToggleSettingsPanel()
-    {
-        // Switch settings and ensure other panels are closed for a clean UI
-        if (settingsPanel != null) settingsPanel.SetActive(!settingsPanel.activeSelf);
-        if (glassesPanel != null) glassesPanel.SetActive(false);
-        if (galleryPanel != null) galleryPanel.SetActive(false);
-    }
-
-    public void ToggleGlassesPanel()
-    {
-        if (glassesPanel != null) glassesPanel.SetActive(!glassesPanel.activeSelf);
-        if (settingsPanel != null) settingsPanel.SetActive(false);
-        if (galleryPanel != null) galleryPanel.SetActive(false);
-    }
-
-    public void ToggleGalleryPanel()
-    {
-        if (galleryPanel != null) galleryPanel.SetActive(!galleryPanel.activeSelf);
-        if (settingsPanel != null) settingsPanel.SetActive(false);
-        if (glassesPanel != null) glassesPanel.SetActive(false);
-    }
-
-    public void CloseAllPanels()
-    {
-        if (settingsPanel != null) settingsPanel.SetActive(false);
-        if (glassesPanel != null) glassesPanel.SetActive(false);
-        if (galleryPanel != null) galleryPanel.SetActive(false);
-    }
-
-    // --- Object Selection ---
-
-    public void SelectGlass(int index)
-    {
-        // Change the active model based on button index from the UI
-        if (index >= 0 && index < glasses.Length)
-        {
-            currentIndex = index;
-            UpdateGlassesVisibility();
-            ToggleGlassesPanel(); // Auto-close gallery after picking
-        }
-    }
-
-    private void UpdateGlassesVisibility()
-    {
+        // cache the original scales of the 3D models so we can reset them later if needed
+        initialScales = new Vector3[glasses.Length];
         for (int i = 0; i < glasses.Length; i++)
         {
-            if (glasses[i] != null)
-                glasses[i].SetActive(i == currentIndex);
+            if (glasses[i] != null) initialScales[i] = glasses[i].transform.localScale;
         }
-        SyncUIWithActiveObject();
+
+        // make sure the HUD starts in the closed position
+        if (rightSideHUD != null)
+            rightSideHUD.anchoredPosition = new Vector2(closedX, rightSideHUD.anchoredPosition.y);
+
+        SetupListeners();
+        UpdateVisibility();
+        LoadGallery(); // fetch saved photos from device storage on startup
     }
 
-    // --- Transform Logic (Sliders & Inputs) ---
-
-    private void OnScaleSliderChanged(float val) { scaleInput.text = val.ToString("F2"); ApplyTransform(); }
-    private void OnXSliderChanged(float val) { xInput.text = val.ToString("F2"); ApplyTransform(); }
-    private void OnYSliderChanged(float val) { yInput.text = val.ToString("F2"); ApplyTransform(); }
-    private void OnZSliderChanged(float val) { zInput.text = val.ToString("F2"); ApplyTransform(); }
-
-    private void OnScaleInputChanged(string valStr) { if (float.TryParse(valStr, out float val)) scaleSlider.value = val; }
-    private void OnXInputChanged(string valStr) { if (float.TryParse(valStr, out float val)) xSlider.value = val; }
-    private void OnYInputChanged(string valStr) { if (float.TryParse(valStr, out float val)) ySlider.value = val; }
-    private void OnZInputChanged(string valStr) { if (float.TryParse(valStr, out float val)) zSlider.value = val; }
-
-    private void ApplyTransform()
+    private void SetupListeners()
     {
-        GameObject currentGlass = glasses[currentIndex];
-        if (currentGlass == null) return;
+        scaleSlider.onValueChanged.AddListener(val => { scaleInput.text = val.ToString("F2"); ApplyTransforms(); });
+        xSlider.onValueChanged.AddListener(val => { xInput.text = val.ToString("F2"); ApplyTransforms(); });
+        ySlider.onValueChanged.AddListener(val => { yInput.text = val.ToString("F2"); ApplyTransforms(); });
+        zSlider.onValueChanged.AddListener(val => { zInput.text = val.ToString("F2"); ApplyTransforms(); });
 
-        // Apply local position and scale to the currently selected AR object
-        float s = scaleSlider.value;
-        currentGlass.transform.localScale = new Vector3(s, s, s);
-        currentGlass.transform.localPosition = new Vector3(xSlider.value, ySlider.value, zSlider.value);
+        scaleInput.onEndEdit.AddListener(val => { if (float.TryParse(val, out float f)) scaleSlider.value = f; });
+        xInput.onEndEdit.AddListener(val => { if (float.TryParse(val, out float f)) xSlider.value = f; });
+        yInput.onEndEdit.AddListener(val => { if (float.TryParse(val, out float f)) ySlider.value = f; });
+        zInput.onEndEdit.AddListener(val => { if (float.TryParse(val, out float f)) zSlider.value = f; });
     }
 
-    private void SyncUIWithActiveObject()
+    private void Update()
     {
-        GameObject currentGlass = glasses[currentIndex];
-        if (currentGlass == null) return;
-
-        // Fetch current object data and show it on UI elements
-        scaleSlider.value = currentGlass.transform.localScale.x;
-        xSlider.value = currentGlass.transform.localPosition.x;
-        ySlider.value = currentGlass.transform.localPosition.y;
-        zSlider.value = currentGlass.transform.localPosition.z;
+        // checking for screen taps
+        // skip this if the full-screen photo viewer is currently active
+        if (Input.GetMouseButtonDown(0) && (fullScreenView == null || !fullScreenView.activeSelf))
+        {
+            if (EventSystem.current.IsPointerOverGameObject()) return; // ignored if tapping on a UI element
+            HandleOutsideClick();
+        }
     }
 
-    // --- Photography Section ---
+    // panel toggles
+    public void ToggleRightHUD()
+    {
+        isHudOpen = !isHudOpen;
+
+        // stop any ongoing slide animation before starting a new one to avoid glitchy movement
+        if (slideCoroutine != null) StopCoroutine(slideCoroutine);
+        slideCoroutine = StartCoroutine(AnimateHUD(isHudOpen ? openX : closedX));
+    }
+
+    private IEnumerator AnimateHUD(float targetX)
+    {
+        // slide the panel towards the target X position
+        while (Mathf.Abs(rightSideHUD.anchoredPosition.x - targetX) > 0.1f)
+        {
+            float nextX = Mathf.Lerp(rightSideHUD.anchoredPosition.x, targetX, Time.deltaTime * slideSpeed);
+            rightSideHUD.anchoredPosition = new Vector2(nextX, rightSideHUD.anchoredPosition.y);
+            yield return null;
+        }
+        // snap the position at the end of the animation
+        rightSideHUD.anchoredPosition = new Vector2(targetX, rightSideHUD.anchoredPosition.y);
+    }
+
+    public void ToggleSettings() { bool s = !settingsPanel.activeSelf; CloseAll(); settingsPanel.SetActive(s); }
+    public void ToggleGlasses() { bool s = !glassesPanel.activeSelf; CloseAll(); glassesPanel.SetActive(s); }
+    public void ToggleGallery() { bool s = !galleryPanel.activeSelf; CloseAll(); galleryPanel.SetActive(s); }
+
+    public void CloseAll()
+    {
+        // hide all floating panels
+        if (settingsPanel != null) settingsPanel.SetActive(false);
+        if (glassesPanel != null) glassesPanel.SetActive(false);
+        if (galleryPanel != null) galleryPanel.SetActive(false);
+    }
+
+    // transformation and model selection
+    public void SelectGlass(int index)
+    {
+        if (index < 0 || index >= glasses.Length) return;
+        currentIndex = index;
+
+        // reset the selected model's position and scale 
+        GameObject obj = glasses[currentIndex];
+        if (obj != null)
+        {
+            obj.transform.localPosition = new Vector3(0, 0.1f, 0);
+            obj.transform.localScale = initialScales[currentIndex];
+        }
+        UpdateVisibility();
+    }
+
+    private void UpdateVisibility()
+    {
+        // only show the currently selected pair of glasses
+        for (int i = 0; i < glasses.Length; i++)
+            if (glasses[i] != null) glasses[i].SetActive(i == currentIndex);
+
+        SyncUI();
+    }
+
+    private void ApplyTransforms()
+    {
+        // bail out if the UI is currently being updated by the script itself
+        if (isSyncingUI || glasses[currentIndex] == null) return;
+
+        glasses[currentIndex].transform.localScale = initialScales[currentIndex] * scaleSlider.value;
+        glasses[currentIndex].transform.localPosition = new Vector3(xSlider.value, ySlider.value, zSlider.value);
+    }
+
+    private void SyncUI()
+    {
+        if (glasses[currentIndex] == null) return;
+        isSyncingUI = true;
+
+        // calculate the relative scale ratio and update the sliders to match the model's current state
+        float ratio = glasses[currentIndex].transform.localScale.x / initialScales[currentIndex].x;
+        scaleSlider.value = ratio;
+        xSlider.value = glasses[currentIndex].transform.localPosition.x;
+        ySlider.value = glasses[currentIndex].transform.localPosition.y;
+        zSlider.value = glasses[currentIndex].transform.localPosition.z;
+
+        isSyncingUI = false;
+    }
 
     public void TakeSnapshot()
     {
-        StartCoroutine(CaptureRoutine());
+        StartCoroutine(CaptureScreen());
     }
 
-    private IEnumerator CaptureRoutine()
+    private IEnumerator CaptureScreen()
     {
-        // Wait for the frame to finish to get a complete render
+        // hide the UI so it doesn't ruin the screenshot
+        if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(false);
+
         yield return new WaitForEndOfFrame();
 
         int width = Screen.width;
         int height = Screen.height;
-
-        // Create a temporary texture to render the camera view separately (hides UI)
         RenderTexture rt = new RenderTexture(width, height, 24);
+
         Camera.main.targetTexture = rt;
         Camera.main.Render();
-
         RenderTexture.active = rt;
-        Texture2D screenImage = new Texture2D(width, height, TextureFormat.RGB24, false);
-        screenImage.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-        screenImage.Apply();
 
-        // Clean up: Reset camera and release memory
+        Texture2D screenShot = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+        screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        screenShot.Apply();
+
+        // cleanup texture memory
         Camera.main.targetTexture = null;
         RenderTexture.active = null;
 
-        byte[] bytes = screenImage.EncodeToPNG();
+        // encode and save the image locally
+        byte[] bytes = screenShot.EncodeToPNG();
+        string filename = "AR_Snap_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+        string path = Path.Combine(Application.persistentDataPath, filename);
+        File.WriteAllBytes(path, bytes);
 
-        // Save file with a unique timestamp
-        string fileName = "AR_Snap_" + System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".png";
-        string filePath = Application.isEditor ? fileName : Path.Combine(Application.persistentDataPath, fileName);
-
-        File.WriteAllBytes(filePath, bytes);
-        Debug.Log("Photo saved to: " + filePath);
-
-        // Memory management: Manually destroy texture objects
         Destroy(rt);
-        Destroy(screenImage);
 
-        // Visual feedback for the user
-        if (flashScreen != null) StartCoroutine(FlashRoutine());
+        CreateThumbnail(path); // update the gallery with the new photo
+        Destroy(screenShot);
+
+        // bring the UI back and trigger the camera flash effect
+        if (rightSideHUD != null) rightSideHUD.gameObject.SetActive(true);
+        if (flashScreen != null) StartCoroutine(DoFlash());
     }
 
-    private IEnumerator FlashRoutine()
+    private IEnumerator DoFlash()
     {
-        // Instant white burst
-        flashScreen.color = new Color(1f, 1f, 1f, 1f);
+        // creates white flash effect
+        flashScreen.color = Color.white;
         yield return new WaitForSeconds(0.05f);
-
-        // Smooth fade out
-        float alpha = 1f;
-        while (alpha > 0)
+        float a = 1f;
+        while (a > 0)
         {
-            alpha -= Time.deltaTime * 3f;
-            flashScreen.color = new Color(1f, 1f, 1f, alpha);
+            a -= Time.deltaTime * 4f; // fade out
+            flashScreen.color = new Color(1, 1, 1, a);
             yield return null;
         }
+    }
+
+    // gallery system
+    private void LoadGallery()
+    {
+        if (!Directory.Exists(Application.persistentDataPath)) return;
+
+        // grab all saved AR snapshots and generate thumbnails for them
+        string[] files = Directory.GetFiles(Application.persistentDataPath, "AR_Snap_*.png");
+        foreach (string file in files)
+        {
+            CreateThumbnail(file);
+        }
+    }
+
+    private void CreateThumbnail(string filePath)
+    {
+        if (thumbnailPrefab == null || galleryContent == null) return;
+
+        // load the image bytes and convert them into a readable Texture2D
+        byte[] bytes = File.ReadAllBytes(filePath);
+        Texture2D tex = new Texture2D(2, 2);
+        tex.LoadImage(bytes);
+
+        // spawn a new thumbnail in the gallery grid
+        GameObject thumbObj = Instantiate(thumbnailPrefab, galleryContent);
+        RawImage thumbImg = thumbObj.GetComponent<RawImage>();
+        if (thumbImg != null) thumbImg.texture = tex;
+
+        Button btn = thumbObj.GetComponent<Button>();
+        if (btn != null)
+        {
+            btn.onClick.AddListener(() => OpenFullScreen(tex));
+        }
+    }
+
+    private void OpenFullScreen(Texture2D photoTex)
+    {
+        if (fullScreenView == null || photoDisplay == null) return;
+
+        photoDisplay.texture = photoTex;
+        fullScreenView.SetActive(true);
+
+        // allow the user to rotate their phone to view the photo in landscape mode
+        Screen.orientation = ScreenOrientation.AutoRotation;
+        Screen.autorotateToPortrait = true;
+        Screen.autorotateToLandscapeLeft = true;
+        Screen.autorotateToLandscapeRight = true;
+    }
+
+    private void HandleOutsideClick()
+    {
+        // loop through all managed panels.
+        foreach (RectTransform p in panelRects)
+            if (p != null && p.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(p, Input.mousePosition)) return;
+
+        CloseAll();
+    }
+
+    public void ChangeScaleValue(bool isIncrease)
+    {
+        scaleSlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeXValue(bool isIncrease)
+    {
+        xSlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeYValue(bool isIncrease)
+    {
+        ySlider.value += isIncrease ? stepAmount : -stepAmount;
+    }
+
+    public void ChangeZValue(bool isIncrease)
+    {
+        zSlider.value += isIncrease ? stepAmount : -stepAmount;
     }
 }
