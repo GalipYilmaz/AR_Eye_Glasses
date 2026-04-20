@@ -27,7 +27,7 @@ A high-performance Augmented Reality (AR) mobile application built with Unity an
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/GalipYilmaz/AREyeGlasses.git
+    git clone https://github.com/GalipYilmaz/AR_Eye_Glasses.git
     ```
 2.  **Open in Unity:** Use Unity Hub to open the project folder.
 3.  **Setup Vuforia:** Ensure the Vuforia Engine package is imported via the Package Manager.
