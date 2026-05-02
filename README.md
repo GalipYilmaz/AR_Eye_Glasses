@@ -34,6 +34,10 @@ A high-performance Augmented Reality (AR) mobile application built with Unity an
 4.  **License Key:** Add your own Vuforia License Key in Window > Vuforia Configuration.
 5.  **Build:** Switch platform to Android and click Build and Run.
 
+## Third-Party Assets
+
+Some 3D models and textures used in this project may belong to their respective creators.
+They are included only for educational/course demonstration purposes.
 
 ## Developers
 
